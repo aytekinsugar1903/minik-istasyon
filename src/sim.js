@@ -4,7 +4,7 @@ export const ROUTES = [
   { id: "makas", name: "Makas", verb: "Kolunu doğru anda çevir", color: "#e0a100" },
   { id: "fren", name: "Fren", verb: "Vagonu şeritte durdur", color: "#d4533a" },
   { id: "kurek", name: "Kürek", verb: "Köprüyü kaldıracak yükü koy", color: "#2f6f4e" },
-  { id: "kanca", name: "Kanca", verb: "Hızlar denk gelince bırak", color: "#3d6f99" },
+  { id: "tabla", name: "Tabla", verb: "Vagonu doğru kemere çevir", color: "#3f6f8a" },
   { id: "bariyer", name: "Bariyer", verb: "Kapakları sırayla yönet", color: "#8a5a9a" },
 ];
 
@@ -13,7 +13,19 @@ export const MAX_STARS = 150;
 const MAKAS_NAMES = ["İlk makas", "Sabah seferi", "İkinci hat", "Çatal", "İniş", "Çift kol", "Hızlanan ray", "Çisenti", "Kaygan makas", "Gece seferi"];
 const FREN_NAMES = ["Yumuşak duruş", "Peron şeridi", "Biraz daha hız", "İki eğim", "Dik rampa", "Kısa şerit", "Ağır vagon", "Islak ray", "Yağmur", "Son fren"];
 const KUREK_NAMES = ["Dört kürek", "Kömür de", "Taş seçimi", "Daha ağır", "Dar kefe", "Köprü inat eder", "Tam kilo", "Hassas yük", "Son kürek", "Terazi ustası"];
-const KANCA_NAMES = ["Yavaş yaklaşma", "Denk hız", "Yakın kanca", "Tümsek", "Hızlanan arka", "Dar fark", "Kısa pencere", "Rüzgar", "Esinti", "Gece kancası"];
+const TABLA_NAMES = ["İlk tabla", "Dört yol", "Beş kemer", "Yalancı fener", "İnce ağız", "Ayna yolu", "Düz tuzak", "Gece plakası", "Komşu kemer", "Son dönüş"];
+const TABLA_LEVELS = [
+  { stalls: [-52, 0, 52], target: -52, decoy: null, half: 24 },
+  { stalls: [-58, -20, 20, 58], target: 20, decoy: null, half: 14 },
+  { stalls: [-64, -32, 0, 32, 64], target: 32, decoy: null, half: 12 },
+  { stalls: [-64, -32, 0, 32, 64], target: -32, decoy: 32, half: 11 },
+  { stalls: [-66, -40, -14, 14, 40, 66], target: -14, decoy: 14, half: 9 },
+  { stalls: [-66, -40, -14, 14, 40, 66], target: 40, decoy: -40, half: 8 },
+  { stalls: [-69, -46, -23, 0, 23, 46, 69], target: 23, decoy: 0, half: 8 },
+  { stalls: [-69, -46, -23, 0, 23, 46, 69], target: -46, decoy: 46, half: 7 },
+  { stalls: [-70, -48, -26, -8, 10, 32, 54], target: -8, decoy: 10, half: 6 },
+  { stalls: [-72, -52, -32, -12, 8, 28, 48, 68], target: 8, decoy: -12, half: 5.5 },
+];
 const BARIYER_NAMES = ["Üç kapak", "Sırayı öğren", "Sakin geçit", "Geri tepen kapak", "Daha çabuk", "Saat başladı", "Dar zaman", "İki baskı", "Son dakikalar", "Gece geçidi"];
 
 const BARIYER_TIMERS = { 3: 11, 4: 9.5, 5: 8.5, 6: 7.5, 7: 6.8, 8: 6.2, 9: 5.8, 10: 5.4 };
@@ -54,7 +66,7 @@ export function levelSpec(route, n) {
   if (route === "makas") return makasSpec(shared, level, t);
   if (route === "fren") return frenSpec(shared, level, t);
   if (route === "kurek") return kurekSpec(shared, level, t);
-  if (route === "kanca") return kancaSpec(shared, level, t);
+  if (route === "tabla") return tablaSpec(shared, level);
   return bariyerSpec(shared, level, t);
 }
 
@@ -132,20 +144,21 @@ function kurekSpec(shared, level, t) {
   };
 }
 
-function kancaSpec(shared, level, t) {
+function tablaSpec(shared, level) {
+  const layout = TABLA_LEVELS[level - 1];
+  const plate = "ABCDEFGH"[layout.stalls.indexOf(layout.target)];
   return {
     ...shared,
-    name: KANCA_NAMES[level - 1],
-    blurb: "İbreler bir an üst üste gelir. O anda bırak. Pencere ilk bölümden dardır.",
-    hint: "Sayı yok. Rüzgar ve tümsek ilk seferden vardır.",
-    frontV: 118,
-    decel: 22 + t * 14,
-    rearV: 34,
-    bump: 10 + t * 14,
-    bumpAt: 0.45,
-    windAmp: 0.45 + t * 0.9,
-    windFreq: 3.1,
-    threshold: 6.2 - t * 4,
+    name: TABLA_NAMES[level - 1],
+    blurb: layout.decoy == null
+      ? "Yeşil fener doğru kemeri yakar. Tablayı o ağıza çevir, vagonu gönder."
+      : "Parlak fener yalan söyler. Plakayla aynı harfli kemer doğru yoldur.",
+    hint: "Ray yeşil ağzın içine girince oturmuş demektir. O zaman gönder.",
+    stalls: layout.stalls,
+    target: layout.target,
+    decoy: layout.decoy,
+    half: layout.half,
+    plate,
   };
 }
 
@@ -175,7 +188,7 @@ export function createRun(route, n) {
     route,
     n: spec.n,
     spec,
-    phase: route === "fren" || route === "kurek" ? "aim" : "play",
+    phase: route === "fren" || route === "kurek" || route === "tabla" ? "aim" : "play",
     t: 0,
     stars: 0,
     fail: "",
@@ -192,7 +205,7 @@ export function createRun(route, n) {
     clock: spec.timer ?? 0,
     clockOn: false,
     arriving: 0,
-    coupled: false,
+    angle: 0,
     doom: "",
   };
   if (route === "fren") run.brake = 0.2;
@@ -215,7 +228,7 @@ function stepOnce(run, dt) {
   if (run.route === "makas") stepMakas(run, dt);
   else if (run.route === "fren") stepFren(run, dt);
   else if (run.route === "kurek") stepKurek(run, dt);
-  else if (run.route === "kanca") stepKanca(run, dt);
+  else if (run.route === "tabla") stepTabla(run);
   else stepBariyer(run, dt);
 }
 
@@ -227,7 +240,8 @@ export function act(run, action) {
   else if (action.type === "scoop") addScoop(run, action.material);
   else if (action.type === "undo") undoScoop(run);
   else if (action.type === "confirm") confirmLoad(run);
-  else if (action.type === "hook") dropHook(run);
+  else if (action.type === "turn") turnTable(run, action.delta);
+  else if (action.type === "send") sendTable(run);
   else if (action.type === "gate") pressGate(run, action.gate);
   return run;
 }
@@ -323,7 +337,7 @@ function releaseBrake(run) {
 }
 
 function stepKurek(run) {
-  if (run.t > 0.85) {
+  if (run.t > 2.6) {
     const verdict = kurekVerdict(run.spec, run.counts);
     if (!verdict.ok) run.doom = "ucurum";
     const note = verdict.ok ? verdict.note : "Köprü oturmadı. Vagon boşluğa düştü.";
@@ -354,31 +368,23 @@ function confirmLoad(run) {
   run.t = 0;
 }
 
-function stepKanca(run, dt) {
-  if (run.coupled) {
-    if (run.t - run.coupledAt > 0.45) finish(run, true, "", run.note, run.stars);
-    return;
-  }
-  if (run.t > 16) {
-    run.doom = "sikis";
-    finish(run, false, "Kaçtı", "Kanca kaçtı. Vagonlar birbirine sıkıştı.");
-  }
-  void dt;
+function turnTable(run, delta) {
+  if (run.route !== "tabla" || run.phase !== "aim") return;
+  run.angle = clamp(Math.round(run.angle + delta), -80, 80);
 }
 
-function dropHook(run) {
-  if (run.route !== "kanca" || run.phase !== "play" || run.coupled) return;
-  const { delta } = kancaSpeeds(run.spec, run.t);
-  if (delta <= run.spec.threshold) {
-    const ratio = delta / run.spec.threshold;
-    run.stars = ratio <= 0.33 ? 3 : ratio <= 0.66 ? 2 : 1;
-    run.note = `Hız farkı ${delta.toFixed(1)}.`;
-    run.coupled = true;
-    run.coupledAt = run.t;
-    return;
-  }
-  run.doom = "sikis";
-  finish(run, false, "Hızlar ayrı", "Kanca oturmadı. Vagonlar tampon tampona sıkıştı.");
+function sendTable(run) {
+  if (run.route !== "tabla" || run.phase !== "aim") return;
+  run.verdict = tablaVerdict(run.spec, run.angle);
+  run.phase = "play";
+  run.t = 0;
+}
+
+function stepTabla(run) {
+  if (run.t <= 0.9) return;
+  const verdict = run.verdict ?? tablaVerdict(run.spec, run.angle);
+  if (!verdict.ok) run.doom = verdict.doom;
+  finish(run, verdict.ok, verdict.fail, verdict.note, verdict.stars);
 }
 
 function stepBariyer(run, dt) {
@@ -504,12 +510,31 @@ export function kurekVerdict(spec, counts) {
   return { ok: true, stars, fail: "", note: `${weight} kg.` };
 }
 
-export function kancaSpeeds(spec, time) {
-  const front = spec.frontV - spec.decel * time;
-  let rear = spec.rearV;
-  if (spec.bump && time >= spec.bumpAt) rear += spec.bump;
-  if (spec.windAmp) rear += spec.windAmp * Math.sin(time * spec.windFreq);
-  return { front, rear, delta: Math.abs(front - rear) };
+export function tablaLock(spec, angle) {
+  let stall = spec.stalls[0];
+  let err = Infinity;
+  for (const candidate of spec.stalls) {
+    const delta = Math.abs(angle - candidate);
+    if (delta < err) {
+      err = delta;
+      stall = candidate;
+    }
+  }
+  return { stall, err, seated: err <= spec.half + 1e-6 };
+}
+
+export function tablaVerdict(spec, angle) {
+  const lock = tablaLock(spec, angle);
+  const miss = Math.abs(angle - spec.target);
+  if (lock.seated && lock.stall === spec.target) {
+    const stars = miss <= spec.half * 0.34 ? 3 : miss <= spec.half * 0.67 ? 2 : 1;
+    const note = miss < 0.5 ? "Ray kemerin ortasına oturdu." : `${miss.toFixed(0)}° kenardan girdi.`;
+    return { ok: true, stars, fail: "", note, doom: "" };
+  }
+  if (lock.seated) {
+    return { ok: false, stars: 0, fail: "Yanlış kemer", note: "Vagon tuğla ayağa çarptı.", doom: "tampon" };
+  }
+  return { ok: false, stars: 0, fail: "Tabla boşta", note: "Vagon çukura düştü.", doom: "cukur" };
 }
 
 function bariyerStars(run) {
@@ -568,7 +593,12 @@ export function recordClear(progress, route, level, stars) {
 }
 
 export function totalStars(progress) {
-  return Object.values(progress?.stars ?? {}).reduce((sum, value) => sum + value, 0);
+  const stars = progress?.stars ?? {};
+  let sum = 0;
+  for (const route of ROUTES) {
+    for (let level = 1; level <= 10; level += 1) sum += stars[`${route.id}-${level}`] ?? 0;
+  }
+  return sum;
 }
 
 export function starsFor(progress, route, level) {

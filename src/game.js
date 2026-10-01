@@ -7,7 +7,6 @@ import {
   createRun,
   emptyProgress,
   isUnlocked,
-  kancaSpeeds,
   levelSpec,
   loadWeight,
   previewStop,
@@ -15,6 +14,7 @@ import {
   routeById,
   starsFor,
   step,
+  tablaLock,
   totalStars,
   trackY,
 } from "./sim.js";
@@ -41,11 +41,11 @@ const controlsEl = document.querySelector("#controls");
 
 const reduced = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
 const skies = {
-  dawn: ["#f0b27a", "#f8e6cf", "#7f9a62", "#c9b08a"],
-  noon: ["#7eb6e8", "#d9eefc", "#6ea15a", "#e4d2ae"],
-  rain: ["#667684", "#c5d0d4", "#5c6b59", "#9a917f"],
-  dusk: ["#3d3a6e", "#e7a06a", "#3d4c3c", "#a56b49"],
-  night: ["#141824", "#2a3548", "#1b2922", "#3c362e"],
+  dawn: ["#f0b27a", "#f8e6cf", "#7f9a62", "#c9b08a", "#f3d7b0", "#9bb57a"],
+  noon: ["#7eb6e8", "#d9eefc", "#6ea15a", "#e4d2ae", "#c5e4f8", "#8fba72"],
+  rain: ["#667684", "#c5d0d4", "#5c6b59", "#9a917f", "#aeb8bc", "#738470"],
+  dusk: ["#3d3a6e", "#e7a06a", "#3d4c3c", "#a56b49", "#c98462", "#5d6e52"],
+  night: ["#141824", "#2a3548", "#1b2922", "#3c362e", "#243044", "#2a4034"],
 };
 
 const progressLoad = loadProgress();
@@ -156,7 +156,7 @@ function renderHome() {
   `).join("");
   homeEl.innerHTML = `
     <section class="hero">
-      <p class="lede">İstasyonda bu gece tek kişi sensin. Her bölümde bir vagon ve bir karar var: kol, fren, yük, kanca ya da kapak.</p>
+      <p class="lede">İstasyonda bu gece tek kişi sensin. Her bölümde bir vagon ve bir karar var: kol, fren, yük, tabla ya da kapak.</p>
       <button id="continue" class="primary" type="button">${done ? "Yıldızlar tamam" : `Devam · ${route.name} ${next.level}`}</button>
     </section>
     <div class="routes">${cards}</div>
@@ -259,9 +259,18 @@ function renderControls() {
     }
     controlsEl.querySelector("#undo").addEventListener("click", () => doAction({ type: "undo" }));
     controlsEl.querySelector("#act").addEventListener("click", () => doAction({ type: "confirm" }));
-  } else if (run.route === "kanca") {
-    controlsEl.innerHTML = `<button id="act" class="go" type="button">Kancayı bırak</button>`;
-    controlsEl.querySelector("#act").addEventListener("click", () => doAction({ type: "hook" }));
+  } else if (run.route === "tabla") {
+    controlsEl.innerHTML = `
+      <button type="button" data-turn="-8">8° sola</button>
+      <button type="button" data-turn="-1">1° sola</button>
+      <button type="button" data-turn="1">1° sağa</button>
+      <button type="button" data-turn="8">8° sağa</button>
+      <button id="act" class="go" type="button">Vagonu gönder</button>
+    `;
+    for (const button of controlsEl.querySelectorAll("[data-turn]")) {
+      button.addEventListener("click", () => doAction({ type: "turn", delta: Number(button.dataset.turn) }));
+    }
+    controlsEl.querySelector("#act").addEventListener("click", () => doAction({ type: "send" }));
   } else {
     const shift = (spec.n - 1) % spec.buttons.length;
     const buttons = spec.buttons.slice(shift).concat(spec.buttons.slice(0, shift));
@@ -279,7 +288,7 @@ function doAction(action) {
   if (!run || state.paused || state.resolved) return;
   if (run.phase !== "play" && run.phase !== "aim") return;
   act(run, action);
-  if (action.type === "throw" || action.type === "hook" || action.type === "release" || action.type === "gate") {
+  if (action.type === "throw" || action.type === "send" || action.type === "release" || action.type === "gate") {
     tone(210, 0.07, "square", 0.03);
   }
   updateReadout();
@@ -332,10 +341,17 @@ function updateReadout() {
     const goal = run.spec.tol < 1 ? `tam ${run.spec.target} kg` : `${run.spec.target} kg ± ${run.spec.tol.toFixed(1)}`;
     text = `${weight} kg · hedef ${goal}`;
     toneClass = err <= run.spec.tol ? "good" : "";
-  } else if (run.route === "kanca") {
-    const speeds = kancaSpeeds(run.spec, run.t);
-    text = speeds.delta <= run.spec.threshold ? "Şimdi" : "İbreleri izle";
-    toneClass = speeds.delta <= run.spec.threshold ? "good" : "";
+  } else if (run.route === "tabla") {
+    const lock = tablaLock(run.spec, run.angle);
+    const deg = Math.round(run.angle);
+    const dir = deg === 0 ? "0°" : deg < 0 ? `${Math.abs(deg)}° sol` : `${deg}° sağ`;
+    const plate = run.spec.decoy == null ? "" : `Plaka ${run.spec.plate} · `;
+    if (lock.seated) {
+      const mark = "ABCDEFGH"[run.spec.stalls.indexOf(lock.stall)];
+      text = `${plate}${dir} · ${mark} kemeri`;
+    } else {
+      text = `${plate}${dir}`;
+    }
   } else {
     const spec = run.spec;
     const clock = spec.timer ? `Süre ${Math.max(0, run.clock).toFixed(1)} sn` : "Tabela sırayı tutar";
@@ -370,7 +386,7 @@ function onResolve() {
     makas: "Doğru hatta",
     fren: "Şeritte durdu",
     kurek: "Köprü kalktı",
-    kanca: "Kanca oturdu",
+    tabla: "Doğru kemer",
     bariyer: "Geçit açıldı",
   };
   const hasNext = won && run.n < 10;
@@ -428,71 +444,158 @@ function frame(now) {
 function draw() {
   const run = state.run;
   const sky = skies[run.spec.atmosphere];
-  const gradient = ctx.createLinearGradient(0, 0, 0, 360);
+  const gradient = ctx.createLinearGradient(0, 0, 0, 400);
   gradient.addColorStop(0, sky[0]);
-  gradient.addColorStop(1, sky[1]);
+  gradient.addColorStop(0.55, sky[1]);
+  gradient.addColorStop(1, sky[4] || sky[1]);
   ctx.fillStyle = gradient;
   ctx.fillRect(0, 0, 960, 540);
   drawCelestial(run.spec.atmosphere);
-  drawHills(sky[2]);
-  ctx.fillStyle = sky[3];
-  ctx.fillRect(0, 430, 960, 110);
+  drawClouds(run.spec.atmosphere);
+  drawHills(sky[2], sky[5] || sky[2]);
+  ctx.fillStyle = grassPattern();
+  ctx.fillRect(0, 300, 960, 240);
+  ctx.fillStyle = "rgba(40, 32, 22, 0.18)";
+  ctx.fillRect(0, 455, 960, 85);
   if (run.route === "makas") drawMakas(run);
   else if (run.route === "fren") drawFren(run);
   else if (run.route === "kurek") drawKurek(run);
-  else if (run.route === "kanca") drawKanca(run);
+  else if (run.route === "tabla") drawTabla(run);
   else drawBariyer(run);
   if (run.spec.atmosphere === "rain" && !reduced) drawRain();
-  drawLantern(86, 392);
-  drawLantern(860, 392);
+  if (run.route !== "tabla") {
+    drawLantern(86, 392);
+    drawLantern(860, 392);
+  }
+  const shade = ctx.createRadialGradient(480, 260, 180, 480, 270, 620);
+  shade.addColorStop(0, "rgba(0,0,0,0)");
+  shade.addColorStop(1, "rgba(8, 10, 14, 0.38)");
+  ctx.fillStyle = shade;
+  ctx.fillRect(0, 0, 960, 540);
+}
+
+const textures = {};
+
+function pattern(key, width, height, paint) {
+  if (!textures[key]) {
+    const sheet = document.createElement("canvas");
+    sheet.width = width;
+    sheet.height = height;
+    paint(sheet.getContext("2d"), width, height);
+    textures[key] = ctx.createPattern(sheet, "repeat");
+  }
+  return textures[key];
+}
+
+function grassPattern() {
+  return pattern("grass", 80, 80, (g, w, h) => {
+    g.fillStyle = "#6f8b4e";
+    g.fillRect(0, 0, w, h);
+    for (let i = 0; i < 220; i += 1) {
+      const x = (i * 29) % w;
+      const y = (i * 17) % h;
+      g.strokeStyle = i % 3 === 0 ? "#8eaa68" : "#56723d";
+      g.lineWidth = 1;
+      g.beginPath();
+      g.moveTo(x, y + 3);
+      g.lineTo(x + 1, y - 2);
+      g.stroke();
+    }
+  });
+}
+
+function gravelPattern() {
+  return pattern("gravel", 64, 48, (g, w, h) => {
+    g.fillStyle = "#6a5d50";
+    g.fillRect(0, 0, w, h);
+    for (let i = 0; i < 260; i += 1) {
+      g.fillStyle = ["#857666", "#4e453c", "#a89480", "#3a332c"][i % 4];
+      g.fillRect((i * 19) % w, (i * 11) % h, i % 5 === 0 ? 3 : 2, 2);
+    }
+  });
 }
 
 function drawCelestial(atmosphere) {
   const night = atmosphere === "night" || atmosphere === "dusk";
-  ctx.fillStyle = night ? "#f4ecd4" : "#fff4c8";
+  const x = night ? 760 : 800;
+  const y = night ? 74 : 86;
+  const radius = night ? 22 : 30;
+  const glow = ctx.createRadialGradient(x, y, radius * 0.2, x, y, radius * 3.2);
+  glow.addColorStop(0, night ? "rgba(255, 236, 196, 0.55)" : "rgba(255, 244, 210, 0.7)");
+  glow.addColorStop(1, "rgba(255, 244, 210, 0)");
+  ctx.fillStyle = glow;
   ctx.beginPath();
-  ctx.arc(night ? 780 : 820, night ? 78 : 92, night ? 22 : 34, 0, Math.PI * 2);
+  ctx.arc(x, y, radius * 3.2, 0, Math.PI * 2);
+  ctx.fill();
+  const body = ctx.createRadialGradient(x - 6, y - 6, 2, x, y, radius);
+  body.addColorStop(0, "#fffaf0");
+  body.addColorStop(1, night ? "#f0d7a2" : "#ffe38a");
+  ctx.fillStyle = body;
+  ctx.beginPath();
+  ctx.arc(x, y, radius, 0, Math.PI * 2);
   ctx.fill();
   if (atmosphere === "night") {
-    for (let i = 0; i < 18; i += 1) {
-      const x = (i * 97) % 900 + 20;
-      const y = (i * 53) % 150 + 20;
-      ctx.globalAlpha = reduced ? 0.8 : 0.45 + Math.sin(state.anim * 2 + i) * 0.35;
-      ctx.fillRect(x, y, 2, 2);
+    for (let i = 0; i < 28; i += 1) {
+      const sx = (i * 97) % 900 + 16;
+      const sy = (i * 53) % 160 + 16;
+      ctx.globalAlpha = reduced ? 0.7 : 0.35 + Math.sin(state.anim * 1.4 + i) * 0.25;
+      ctx.fillStyle = "#f7f1e4";
+      ctx.fillRect(sx, sy, 1.5, 1.5);
     }
     ctx.globalAlpha = 1;
   }
 }
 
-function drawHills(color) {
-  ctx.fillStyle = color;
+function drawClouds(atmosphere) {
+  if (atmosphere === "night") return;
+  ctx.fillStyle = atmosphere === "rain" ? "rgba(230,236,240,0.35)" : "rgba(255,255,255,0.55)";
+  const drift = reduced ? 0 : state.anim * 8;
+  for (const cloud of [[140, 78, 70], [420, 56, 90], [690, 96, 60]]) {
+    const x = (cloud[0] + drift) % 1040 - 40;
+    ctx.beginPath();
+    ctx.ellipse(x, cloud[1], cloud[2], 16, 0, 0, Math.PI * 2);
+    ctx.ellipse(x + 28, cloud[1] + 4, cloud[2] * 0.7, 14, 0, 0, Math.PI * 2);
+    ctx.fill();
+  }
+}
+
+function drawHills(near, far) {
+  const back = ctx.createLinearGradient(0, 180, 0, 340);
+  back.addColorStop(0, far);
+  back.addColorStop(1, near);
+  ctx.fillStyle = back;
   ctx.beginPath();
-  ctx.moveTo(0, 300);
-  ctx.quadraticCurveTo(180, 230, 360, 292);
-  ctx.quadraticCurveTo(560, 210, 760, 286);
-  ctx.quadraticCurveTo(860, 250, 960, 300);
-  ctx.lineTo(960, 440);
-  ctx.lineTo(0, 440);
+  ctx.moveTo(0, 250);
+  ctx.quadraticCurveTo(160, 150, 340, 230);
+  ctx.quadraticCurveTo(520, 120, 760, 220);
+  ctx.quadraticCurveTo(880, 170, 960, 240);
+  ctx.lineTo(960, 360);
+  ctx.lineTo(0, 360);
+  ctx.fill();
+  ctx.fillStyle = "rgba(255,255,255,0.08)";
+  ctx.beginPath();
+  ctx.moveTo(0, 250);
+  ctx.quadraticCurveTo(160, 150, 340, 230);
+  ctx.quadraticCurveTo(300, 210, 180, 250);
+  ctx.fill();
+  const front = ctx.createLinearGradient(0, 220, 0, 430);
+  front.addColorStop(0, near);
+  front.addColorStop(1, "#3f5a34");
+  ctx.fillStyle = front;
+  ctx.beginPath();
+  ctx.moveTo(0, 320);
+  ctx.quadraticCurveTo(200, 250, 380, 310);
+  ctx.quadraticCurveTo(560, 230, 780, 318);
+  ctx.quadraticCurveTo(880, 280, 960, 330);
+  ctx.lineTo(960, 460);
+  ctx.lineTo(0, 460);
   ctx.fill();
 }
 
 function drawRails(y, from = 16, to = 944) {
-  ctx.strokeStyle = "#6d5844";
-  ctx.lineWidth = 4;
-  for (let x = from; x < to; x += 28) {
-    ctx.beginPath();
-    ctx.moveTo(x, y - 10);
-    ctx.lineTo(x + 16, y + 12);
-    ctx.stroke();
-  }
-  ctx.strokeStyle = "#d7d2c8";
-  ctx.lineWidth = 3;
-  ctx.beginPath();
-  ctx.moveTo(from, y - 6);
-  ctx.lineTo(to, y - 6);
-  ctx.moveTo(from, y + 8);
-  ctx.lineTo(to, y + 8);
-  ctx.stroke();
+  const points = railPoints(from, to, () => y);
+  fillBed(points, 24);
+  drawRailPair(points);
 }
 
 function railPoints(from, to, yAt) {
@@ -501,45 +604,47 @@ function railPoints(from, to, yAt) {
   return points;
 }
 
-function fillBed(points, depth, color) {
+function fillBed(points) {
   if (points.length < 2) return;
-  ctx.fillStyle = color;
+  ctx.save();
   ctx.beginPath();
-  ctx.moveTo(points[0].x, points[0].y - 8);
-  for (const point of points) ctx.lineTo(point.x, point.y - 8);
-  for (let i = points.length - 1; i >= 0; i -= 1) ctx.lineTo(points[i].x, points[i].y + depth);
+  ctx.moveTo(points[0].x, points[0].y - 14);
+  for (const point of points) ctx.lineTo(point.x, point.y - 14);
+  for (let i = points.length - 1; i >= 0; i -= 1) ctx.lineTo(points[i].x, points[i].y + 22);
   ctx.closePath();
-  ctx.fill();
+  ctx.clip();
+  ctx.fillStyle = gravelPattern();
+  ctx.fillRect(0, 0, 960, 540);
+  ctx.restore();
+}
+
+function strokeAlong(points, offset, color, width) {
+  ctx.strokeStyle = color;
+  ctx.lineWidth = width;
+  ctx.lineCap = "round";
+  ctx.lineJoin = "round";
+  ctx.beginPath();
+  points.forEach((point, index) => {
+    const command = index === 0 ? "moveTo" : "lineTo";
+    ctx[command](point.x, point.y + offset);
+  });
+  ctx.stroke();
 }
 
 function drawRailPair(points) {
-  ctx.strokeStyle = "#5c4634";
-  ctx.lineWidth = 5;
-  for (let i = 0; i < points.length - 1; i += 2) {
-    ctx.beginPath();
-    ctx.moveTo(points[i].x, points[i].y - 2);
-    ctx.lineTo(points[i].x + 12, points[i].y + 14);
-    ctx.stroke();
+  for (let i = 0; i < points.length; i += 2) {
+    const point = points[i];
+    ctx.fillStyle = "#5a3b24";
+    ctx.fillRect(point.x - 2, point.y - 11, 16, 22);
+    ctx.fillStyle = "#8b6240";
+    ctx.fillRect(point.x - 2, point.y - 11, 16, 3);
+    ctx.fillStyle = "#3d2918";
+    ctx.fillRect(point.x - 2, point.y + 8, 16, 3);
   }
-  ctx.strokeStyle = "#c5ccd1";
-  ctx.lineWidth = 3;
-  for (const offset of [-7, 7]) {
-    ctx.beginPath();
-    points.forEach((point, index) => {
-      const command = index === 0 ? "moveTo" : "lineTo";
-      ctx[command](point.x, point.y + offset);
-    });
-    ctx.stroke();
-  }
-  ctx.strokeStyle = "#8d969c";
-  ctx.lineWidth = 1;
-  for (const offset of [-7, 7]) {
-    ctx.beginPath();
-    points.forEach((point, index) => {
-      const command = index === 0 ? "moveTo" : "lineTo";
-      ctx[command](point.x, point.y + offset - 1.5);
-    });
-    ctx.stroke();
+  for (const offset of [-8, 8]) {
+    strokeAlong(points, offset + 2, "rgba(0,0,0,0.35)", 5);
+    strokeAlong(points, offset, "#9aa3a8", 3.5);
+    strokeAlong(points, offset - 1.4, "#e7eef2", 1.2);
   }
 }
 
@@ -547,48 +652,85 @@ function drawWagon(x, y, ghost = false, angle = 0) {
   ctx.save();
   ctx.translate(x, y);
   ctx.rotate(angle);
-  ctx.globalAlpha = ghost ? 0.38 : 1;
-  ctx.fillStyle = "rgba(0,0,0,0.2)";
+  ctx.globalAlpha = ghost ? 0.4 : 1;
+  ctx.fillStyle = "rgba(20, 16, 12, 0.28)";
   ctx.beginPath();
-  ctx.ellipse(0, 20, 36, 6, 0, 0, Math.PI * 2);
+  ctx.ellipse(2, 22, 42, 7, 0, 0, Math.PI * 2);
   ctx.fill();
-  roundRect(ctx, -36, -24, 54, 28, 6);
-  ctx.fillStyle = "#efe4d2";
+  const boiler = ctx.createLinearGradient(0, -28, 0, 8);
+  boiler.addColorStop(0, "#6e767c");
+  boiler.addColorStop(0.45, "#d5dbdf");
+  boiler.addColorStop(1, "#4d555b");
+  roundRect(ctx, -40, -22, 58, 26, 12);
+  ctx.fillStyle = boiler;
   ctx.fill();
-  ctx.strokeStyle = "#b9a48a";
+  ctx.strokeStyle = "#2e3438";
+  ctx.lineWidth = 1;
   ctx.stroke();
-  roundRect(ctx, 8, -46, 28, 26, 5);
-  ctx.fillStyle = "#a33b32";
+  ctx.strokeStyle = "rgba(255,255,255,0.35)";
+  ctx.beginPath();
+  ctx.moveTo(-28, -16);
+  ctx.lineTo(10, -16);
+  ctx.stroke();
+  const cab = ctx.createLinearGradient(8, -52, 40, -8);
+  cab.addColorStop(0, "#8d3a32");
+  cab.addColorStop(0.5, "#c45a4c");
+  cab.addColorStop(1, "#6c2c26");
+  roundRect(ctx, 8, -48, 30, 32, 4);
+  ctx.fillStyle = cab;
   ctx.fill();
-  ctx.fillStyle = "#6a2a24";
+  ctx.fillStyle = "#4a221e";
   ctx.beginPath();
   ctx.moveTo(6, -46);
-  ctx.lineTo(22, -60);
-  ctx.lineTo(38, -46);
+  ctx.lineTo(23, -62);
+  ctx.lineTo(40, -46);
+  ctx.closePath();
   ctx.fill();
-  ctx.fillStyle = "#f3d48a";
-  ctx.fillRect(-24, -16, 12, 10);
-  ctx.fillRect(-8, -16, 12, 10);
-  ctx.fillStyle = "#d7dde2";
-  ctx.fillRect(14, -40, 16, 12);
+  ctx.fillStyle = "#1c242c";
+  ctx.fillRect(14, -40, 18, 14);
+  ctx.fillStyle = "rgba(186, 220, 236, 0.85)";
+  ctx.fillRect(16, -38, 14, 10);
   ctx.fillStyle = "#2a2118";
-  for (const wheel of [-18, 14]) {
+  ctx.fillRect(-46, -28, 8, 10);
+  const lamp = ctx.createRadialGradient(-44, -32, 1, -44, -32, 8);
+  lamp.addColorStop(0, "#fff6d0");
+  lamp.addColorStop(1, "rgba(255, 214, 120, 0)");
+  ctx.fillStyle = lamp;
+  ctx.beginPath();
+  ctx.arc(-44, -32, 8, 0, Math.PI * 2);
+  ctx.fill();
+  ctx.fillStyle = "#1a1a1a";
+  for (const wheel of [-20, 12]) {
     ctx.save();
     ctx.translate(wheel, 8);
-    ctx.rotate(state.wheel);
     ctx.beginPath();
-    ctx.arc(0, 0, 9, 0, Math.PI * 2);
+    ctx.arc(0, 0, 10, 0, Math.PI * 2);
     ctx.fill();
-    ctx.strokeStyle = "#c9b89a";
+    ctx.strokeStyle = "#c8c2b8";
     ctx.lineWidth = 2;
+    ctx.stroke();
+    ctx.save();
+    ctx.rotate(state.wheel);
+    ctx.strokeStyle = "#8d8680";
     ctx.beginPath();
-    ctx.moveTo(-6, 0);
-    ctx.lineTo(6, 0);
-    ctx.moveTo(0, -6);
-    ctx.lineTo(0, 6);
+    ctx.moveTo(-7, 0);
+    ctx.lineTo(7, 0);
+    ctx.moveTo(0, -7);
+    ctx.lineTo(0, 7);
     ctx.stroke();
     ctx.restore();
+    ctx.fillStyle = "#d9d3cb";
+    ctx.beginPath();
+    ctx.arc(0, 0, 2.5, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.restore();
   }
+  ctx.strokeStyle = "#2a2118";
+  ctx.lineWidth = 2;
+  ctx.beginPath();
+  ctx.moveTo(-20, 2);
+  ctx.lineTo(12, 2);
+  ctx.stroke();
   ctx.restore();
 }
 
@@ -596,8 +738,8 @@ function drawMakas(run) {
   const main = railPoints(20, 940, () => 386);
   const branchFrom = run.spec.switchX;
   const branch = railPoints(branchFrom, 930, (x) => branchY(run.spec, x));
-  fillBed(main, 26, "#6d5844");
-  fillBed(branch, 34, "#5a4636");
+  fillBed(main);
+  fillBed(branch);
   drawRailPair(main);
   drawRailPair(branch);
   const onBranch = run.throws > 0;
@@ -649,7 +791,7 @@ function drawFren(run) {
   ctx.lineTo(940, 470);
   ctx.lineTo(20, 470);
   ctx.fill();
-  fillBed(points, 22, "#6a5644");
+  fillBed(points);
   drawRailPair(points);
   const center = run.spec.startX + run.spec.target;
   ctx.fillStyle = "rgba(47, 107, 74, 0.42)";
@@ -696,129 +838,348 @@ function drawFren(run) {
 }
 
 function drawKurek(run) {
-  const nearL = 120;
-  const nearR = 360;
-  const gapL = 360;
-  const gapR = 600;
-  const deckY = 338;
+  const railY = 356;
+  const gapL = 280;
+  const gapR = 640;
   const weight = loadWeight(run.spec, run.counts);
   const seated = Math.abs(weight - run.spec.target) <= run.spec.tol;
   const crossing = run.phase === "won" || (run.phase === "play" && seated);
-  ctx.fillStyle = "#1b242c";
+
+  ctx.fillStyle = "#10161c";
   ctx.beginPath();
-  ctx.moveTo(gapL, deckY + 18);
-  ctx.lineTo(gapR, deckY + 18);
-  ctx.lineTo(gapR + 16, 520);
-  ctx.lineTo(gapL - 16, 520);
+  ctx.moveTo(gapL - 8, railY + 28);
+  ctx.lineTo(gapR + 8, railY + 28);
+  ctx.lineTo(gapR + 36, 530);
+  ctx.lineTo(gapL - 36, 530);
+  ctx.closePath();
   ctx.fill();
-  ctx.fillStyle = "#31404a";
-  for (let y = deckY + 48; y < 500; y += 16) ctx.fillRect(gapL + 10, y, gapR - gapL - 20, 2);
-  ctx.fillStyle = "#6d5844";
-  ctx.fillRect(36, deckY + 8, nearL - 36, 26);
-  ctx.fillRect(gapR, deckY + 8, 900 - gapR, 26);
-  ctx.fillStyle = "#8a735c";
-  ctx.fillRect(nearL - 16, deckY - 6, 18, 64);
-  ctx.fillRect(gapL - 8, deckY - 6, 16, 64);
-  ctx.fillRect(gapR - 8, deckY - 6, 16, 64);
-  drawBridgeDeck(nearL, nearR, deckY);
-  if (seated || crossing) drawBridgeDeck(gapL, gapR, deckY);
-  const progress = crossing ? Math.min(1, run.phase === "won" ? 1 : run.t / 0.85) : 0;
+  ctx.fillStyle = "#3a4652";
+  ctx.beginPath();
+  ctx.moveTo(gapL - 8, railY + 28);
+  ctx.lineTo(gapL + 48, railY + 110);
+  ctx.lineTo(gapL + 18, 530);
+  ctx.lineTo(gapL - 36, 530);
+  ctx.closePath();
+  ctx.fill();
+  ctx.beginPath();
+  ctx.moveTo(gapR + 8, railY + 28);
+  ctx.lineTo(gapR - 48, railY + 110);
+  ctx.lineTo(gapR - 18, 530);
+  ctx.lineTo(gapR + 36, 530);
+  ctx.closePath();
+  ctx.fill();
+  ctx.fillStyle = "#24303a";
+  for (let y = railY + 120; y < 510; y += 26) {
+    ctx.fillRect(gapL + 70, y, gapR - gapL - 140, 3);
+  }
+  ctx.fillStyle = "#1a2830";
+  ctx.fillRect(gapL + 80, 470, gapR - gapL - 160, 60);
+
+  drawAbutment(gapL, railY);
+  drawAbutment(gapR, railY);
+  drawStation(790, railY - 118);
+  if (seated) drawBridgeSpan(gapL, gapR, railY);
+  if (seated) drawRails(railY, 16, 944);
+  else {
+    drawRails(railY, 16, gapL);
+    drawRails(railY, gapR, 944);
+  }
+
   const falling = run.phase === "lost";
   const u = Math.min(1, state.failT / 0.8);
-  let wagonX = nearL + 70 + progress * (gapR - nearL - 40);
-  let wagonY = deckY - 10;
+  let wagonX = 150;
+  let wagonY = railY - 6;
   let tilt = 0;
+  if (crossing) wagonX = 150 + Math.min(1, run.t / 2.6) * 620;
+  else if (run.phase === "play") wagonX = 150 + Math.min(1, run.t / 1.15) * (gapL - 170);
   if (falling) {
-    wagonX = nearR - 20 + u * 80;
-    wagonY = deckY - 10 + u * 110;
-    tilt = u * 0.9;
+    wagonX = gapL + 10 + u * 80;
+    wagonY = railY - 6 + u * 140;
+    tilt = u * 1.05;
   }
   drawWagon(wagonX, wagonY, false, tilt);
-  drawStation(690, 196);
   ctx.fillStyle = "#f6efe2";
   ctx.font = "16px Segoe UI";
-  ctx.fillText(`${weight} kg`, 48, deckY - 18);
+  ctx.fillText(`${weight} kg`, 28, railY - 36);
 }
 
-function drawBridgeDeck(from, to, y) {
-  ctx.fillStyle = "#6a4b32";
-  ctx.fillRect(from, y - 6, to - from, 14);
-  ctx.strokeStyle = "#c5ccd1";
-  ctx.lineWidth = 3;
+function drawAbutment(x, railY) {
+  const stone = ctx.createLinearGradient(x - 22, railY, x + 22, railY + 80);
+  stone.addColorStop(0, "#8d867c");
+  stone.addColorStop(1, "#4e4944");
+  ctx.fillStyle = stone;
+  ctx.fillRect(x - 22, railY - 6, 44, 92);
+  ctx.fillStyle = "rgba(255,255,255,0.18)";
+  ctx.fillRect(x - 22, railY - 6, 44, 7);
+  for (let row = 0; row < 5; row += 1) {
+    ctx.fillStyle = "rgba(20,16,12,0.28)";
+    ctx.fillRect(x - 22, railY + 10 + row * 15, 44, 2);
+  }
+}
+
+function drawBridgeSpan(from, to, railY) {
+  const deck = railY + 16;
+  const top = railY - 78;
+  const bays = 6;
+  ctx.strokeStyle = "#1e262c";
+  ctx.lineWidth = 8;
+  ctx.lineCap = "butt";
   ctx.beginPath();
-  ctx.moveTo(from, y - 2);
-  ctx.lineTo(to, y - 2);
-  ctx.moveTo(from, y + 4);
-  ctx.lineTo(to, y + 4);
+  ctx.moveTo(from, top);
+  ctx.lineTo(to, top);
+  ctx.moveTo(from, deck);
+  ctx.lineTo(to, deck);
   ctx.stroke();
-  ctx.strokeStyle = "#4d3828";
-  ctx.lineWidth = 3;
-  const span = to - from;
-  const posts = Math.max(2, Math.round(span / 36));
-  for (let i = 0; i <= posts; i += 1) {
-    const x = from + (span * i) / posts;
+  ctx.strokeStyle = "#8d98a0";
+  ctx.lineWidth = 2;
+  ctx.beginPath();
+  ctx.moveTo(from, top + 3);
+  ctx.lineTo(to, top + 3);
+  ctx.stroke();
+  for (let i = 0; i <= bays; i += 1) {
+    const x = from + ((to - from) * i) / bays;
+    ctx.strokeStyle = "#2c363e";
+    ctx.lineWidth = 5;
     ctx.beginPath();
-    ctx.moveTo(x, y + 8);
-    ctx.lineTo(x, y + 28);
-    if (i < posts) {
-      const next = from + (span * (i + 1)) / posts;
-      ctx.moveTo(x, y + 28);
-      ctx.lineTo(next, y + 8);
-    }
+    ctx.moveTo(x, top);
+    ctx.lineTo(x, deck);
     ctx.stroke();
+    if (i < bays) {
+      const next = from + ((to - from) * (i + 1)) / bays;
+      ctx.strokeStyle = "#3e4a52";
+      ctx.lineWidth = 3;
+      ctx.beginPath();
+      ctx.moveTo(x, deck);
+      ctx.lineTo(next, top);
+      ctx.moveTo(x, top);
+      ctx.lineTo(next, deck);
+      ctx.stroke();
+    }
   }
 }
 
-function drawKanca(run) {
-  drawRails(360, 80, 880);
-  drawRails(430, 80, 880);
-  const speeds = kancaSpeeds(run.spec, run.t);
-  const jammed = run.phase === "lost";
-  const u = Math.min(1, state.failT / 0.75);
-  const topY = jammed ? 348 + u * 28 : 348;
-  const bottomY = jammed ? 418 - u * 28 : 418;
-  drawWagon(250, topY, false, jammed ? u * 0.35 : 0);
-  drawWagon(250, bottomY, false, jammed ? -u * 0.35 : 0);
-  ctx.strokeStyle = run.coupled ? "#e7a322" : jammed ? "#8a3b32" : "#6d5844";
-  ctx.lineWidth = jammed ? 7 : 4;
-  ctx.beginPath();
-  ctx.moveTo(250, topY + 24);
-  ctx.quadraticCurveTo(250, (topY + bottomY) / 2, 250, bottomY - 16);
-  ctx.stroke();
-  if (jammed && u > 0.45) {
-    ctx.fillStyle = "#2a2118";
-    ctx.fillRect(236, (topY + bottomY) / 2 - 6, 28, 12);
-  }
-  drawDial(700, 250, speeds, run.spec.threshold);
-}
+function drawTabla(run) {
+  const spec = run.spec;
+  const door = (angle) => {
+    const t = Math.max(-1, Math.min(1, angle / 78));
+    const crowd = Math.min(96, 640 / spec.stalls.length);
+    return {
+      x: 480 + t * 300,
+      y: 162 + Math.abs(t) * 26,
+      w: crowd * (1 - Math.abs(t) * 0.16),
+    };
+  };
 
-function drawDial(x, y, speeds, threshold) {
-  ctx.fillStyle = "#f6efe2";
+  ctx.save();
   ctx.beginPath();
-  ctx.arc(x, y, 70, 0, Math.PI * 2);
+  ctx.moveTo(156, 312);
+  ctx.lineTo(176, 150);
+  ctx.quadraticCurveTo(480, 86, 784, 150);
+  ctx.lineTo(804, 312);
+  ctx.closePath();
+  const wall = ctx.createLinearGradient(180, 90, 780, 300);
+  wall.addColorStop(0, "#684036");
+  wall.addColorStop(0.48, "#8d5848");
+  wall.addColorStop(1, "#4a2e28");
+  ctx.fillStyle = wall;
   ctx.fill();
-  ctx.strokeStyle = speeds.delta <= threshold ? "#2f6b4a" : "#c94b3a";
+  ctx.clip();
+  for (let y = 96; y < 316; y += 8) {
+    ctx.fillStyle = y % 16 === 0 ? "rgba(255,255,255,0.05)" : "rgba(28,12,8,0.22)";
+    ctx.fillRect(140, y, 700, 2);
+  }
+  ctx.restore();
+  ctx.strokeStyle = "#2e1c18";
   ctx.lineWidth = 8;
   ctx.beginPath();
-  ctx.arc(x, y, 58, Math.PI, Math.PI * 2);
+  ctx.moveTo(176, 150);
+  ctx.quadraticCurveTo(480, 86, 784, 150);
   ctx.stroke();
-  needle(x, y, speeds.front, "#c94b3a");
-  needle(x, y, speeds.rear, "#2f6b4a");
+  ctx.fillStyle = "#3a2420";
+  ctx.fillRect(392, 108, 176, 22);
+  ctx.fillStyle = "#f0d7a2";
+  ctx.font = "13px Segoe UI";
+  ctx.textAlign = "center";
+  ctx.fillText("LOKOMOTİF EVİ", 480, 124);
+  ctx.textAlign = "left";
+
+  const order = [...spec.stalls].sort((a, b) => Math.abs(b) - Math.abs(a));
+  for (const stall of order) drawTablaDoor(door(stall), stall, spec);
+
+  const lock = tablaLock(spec, run.angle);
+  const end = door(run.angle);
+  const mouthY = end.y + end.w * 0.92;
+  const aim = run.angle * Math.PI / 180;
+
+  ctx.fillStyle = "#10161c";
+  ctx.beginPath();
+  ctx.ellipse(480, 412, 172, 48, 0, 0, Math.PI * 2);
+  ctx.fill();
+  ctx.strokeStyle = "#a3988c";
+  ctx.lineWidth = 9;
+  ctx.stroke();
+  ctx.strokeStyle = "#6a6158";
+  ctx.lineWidth = 2;
+  ctx.beginPath();
+  ctx.ellipse(480, 412, 156, 36, 0, 0, Math.PI * 2);
+  ctx.stroke();
+
+  const bx = Math.sin(aim) * 130;
+  const by = Math.cos(aim) * 46;
+  ctx.strokeStyle = "#241e1a";
+  ctx.lineWidth = 16;
+  ctx.lineCap = "round";
+  ctx.beginPath();
+  ctx.moveTo(480 - bx, 412 + by);
+  ctx.lineTo(480 + bx, 412 - by);
+  ctx.stroke();
+  ctx.strokeStyle = "#d7e0e6";
+  ctx.lineWidth = 2;
+  ctx.beginPath();
+  ctx.moveTo(480 - bx, 406 + by);
+  ctx.lineTo(480 + bx, 406 - by);
+  ctx.stroke();
+  ctx.fillStyle = "#e0b15a";
+  ctx.beginPath();
+  ctx.arc(480, 412, 7, 0, Math.PI * 2);
+  ctx.fill();
+
+  ctx.strokeStyle = "#8e99a0";
+  ctx.lineWidth = 4;
+  ctx.beginPath();
+  ctx.moveTo(468, 452);
+  ctx.lineTo(468, 528);
+  ctx.moveTo(492, 452);
+  ctx.lineTo(492, 528);
+  ctx.stroke();
+  ctx.strokeStyle = "#e7eef2";
+  ctx.lineWidth = 1.4;
+  ctx.beginPath();
+  ctx.moveTo(470, 452);
+  ctx.lineTo(470, 528);
+  ctx.moveTo(490, 452);
+  ctx.lineTo(490, 528);
+  ctx.stroke();
+
+  ctx.strokeStyle = lock.seated ? "#f4efe4" : "rgba(226, 232, 236, 0.7)";
+  ctx.lineWidth = lock.seated ? 8 : 4;
+  ctx.lineCap = "round";
+  ctx.beginPath();
+  ctx.moveTo(480, 408);
+  ctx.lineTo(end.x, mouthY);
+  ctx.stroke();
+  ctx.strokeStyle = "#d5dee4";
+  ctx.lineWidth = 2;
+  ctx.beginPath();
+  ctx.moveTo(480, 408);
+  ctx.lineTo(end.x, mouthY);
+  ctx.stroke();
+
+  ctx.fillStyle = "#241c16";
+  ctx.fillRect(628, 392, 78, 36);
+  ctx.strokeStyle = "#e7c27a";
+  ctx.lineWidth = 2;
+  ctx.strokeRect(628, 392, 78, 36);
+  ctx.fillStyle = "#e7c27a";
+  ctx.font = "22px Georgia, serif";
+  ctx.textAlign = "center";
+  ctx.fillText(`${Math.round(run.angle)}°`, 667, 417);
+  ctx.textAlign = "left";
+
+  const travel = run.phase === "aim" ? 0 : Math.min(1, run.phase === "won" ? 1 : run.t / 0.9);
+  const lost = run.phase === "lost";
+  const u = Math.min(1, state.failT / 0.8);
+  let along = 0.58 + travel * 0.28;
+  let sink = 0;
+  let tilt = 0;
+  if (lost && run.doom === "cukur") {
+    along = 0.42;
+    sink = u * 48;
+    tilt = u * 0.8;
+  } else if (lost) {
+    along = 0.92;
+    tilt = u * 0.35;
+  }
+  const lx = 480 + (end.x - 480) * along;
+  const ly = 404 + (mouthY - 404) * along + sink;
+  const face = end.x > 500 ? -1 : 1;
+  ctx.save();
+  ctx.translate(lx, ly);
+  ctx.scale(face * 0.82, 0.82);
+  ctx.rotate(tilt);
+  drawWagon(0, 0);
+  ctx.restore();
+  if (sink > 8) {
+    ctx.fillStyle = "#10161c";
+    ctx.beginPath();
+    ctx.ellipse(480, 436, 150, 28, 0, 0, Math.PI * 2);
+    ctx.fill();
+  }
+
+  ctx.fillStyle = "#241c16";
+  ctx.fillRect(28, 338, 118, 78);
+  ctx.strokeStyle = "#e7c27a";
+  ctx.lineWidth = 2;
+  ctx.strokeRect(28, 338, 118, 78);
+  ctx.fillStyle = "#e7c27a";
+  ctx.font = "12px Segoe UI";
+  ctx.textAlign = "left";
+  ctx.fillText("VAGON PLAKASI", 40, 358);
+  ctx.font = "36px Georgia, serif";
+  ctx.textAlign = "center";
+  ctx.fillText(spec.plate, 87, 398);
+  ctx.textAlign = "left";
 }
 
-function needle(x, y, speed, color) {
-  const angle = Math.PI + Math.max(0, Math.min(1, speed / 150)) * Math.PI;
-  ctx.strokeStyle = color;
-  ctx.lineWidth = 3;
+function drawTablaDoor(door, stall, spec) {
+  const mouth = door.w * 1.02;
+  const archY = door.y + mouth * 0.4;
+  ctx.fillStyle = "#12100e";
   ctx.beginPath();
-  ctx.moveTo(x, y);
-  ctx.lineTo(x + Math.cos(angle) * 48, y + Math.sin(angle) * 48);
+  ctx.moveTo(door.x - door.w / 2, door.y + mouth);
+  ctx.lineTo(door.x - door.w / 2, archY);
+  ctx.arc(door.x, archY, door.w / 2, Math.PI, 0);
+  ctx.lineTo(door.x + door.w / 2, door.y + mouth);
+  ctx.closePath();
+  ctx.fill();
+  ctx.strokeStyle = "#e6d2b4";
+  ctx.lineWidth = 6;
   ctx.stroke();
+  ctx.strokeStyle = "#9aa6ae";
+  ctx.lineWidth = 2;
+  ctx.beginPath();
+  ctx.moveTo(door.x - 6, door.y + mouth - 2);
+  ctx.lineTo(door.x - 6, archY + 4);
+  ctx.moveTo(door.x + 6, door.y + mouth - 2);
+  ctx.lineTo(door.x + 6, archY + 4);
+  ctx.stroke();
+
+  const mark = "ABCDEFGH"[spec.stalls.indexOf(stall)];
+  const lying = spec.decoy != null;
+  const glowTarget = !lying && stall === spec.target;
+  const glowDecoy = lying && stall === spec.decoy;
+  const lampY = door.y - 4;
+  if (glowTarget || glowDecoy) {
+    const glow = ctx.createRadialGradient(door.x, lampY, 2, door.x, lampY, 24);
+    glow.addColorStop(0, glowDecoy ? "rgba(255, 196, 90, 0.95)" : "rgba(140, 230, 160, 0.95)");
+    glow.addColorStop(1, "rgba(0,0,0,0)");
+    ctx.fillStyle = glow;
+    ctx.beginPath();
+    ctx.arc(door.x, lampY, 24, 0, Math.PI * 2);
+    ctx.fill();
+  }
+  ctx.fillStyle = glowTarget ? "#d9f5d0" : glowDecoy ? "#ffe0a8" : "#1b1612";
+  ctx.fillRect(door.x - 11, lampY - 11, 22, 18);
+  ctx.fillStyle = glowTarget || glowDecoy ? "#241910" : "#f4e6c4";
+  ctx.font = "14px Georgia, serif";
+  ctx.textAlign = "center";
+  ctx.fillText(mark, door.x, lampY + 3);
+  ctx.textAlign = "left";
 }
 
 function drawBariyer(run) {
   const main = railPoints(20, 940, () => 400);
-  fillBed(main, 24, "#6d5844");
+  fillBed(main);
   drawRailPair(main);
   ctx.fillStyle = "#6a5c50";
   ctx.fillRect(400, 348, 200, 52);
@@ -876,38 +1237,88 @@ function drawArm(x, y, raised, next) {
 }
 
 function drawStation(x, y) {
-  ctx.fillStyle = "#6e3b32";
-  ctx.fillRect(x, y, 150, 120);
-  ctx.fillStyle = "#4e2a24";
+  ctx.fillStyle = "rgba(0,0,0,0.2)";
   ctx.beginPath();
-  ctx.moveTo(x - 10, y);
-  ctx.lineTo(x + 75, y - 36);
-  ctx.lineTo(x + 160, y);
+  ctx.ellipse(x + 75, y + 124, 70, 8, 0, 0, Math.PI * 2);
   ctx.fill();
-  ctx.fillStyle = state.run.spec.atmosphere === "night" || state.run.spec.atmosphere === "dusk" ? "#f6d98a" : "#d7ecf8";
-  for (const windowX of [x + 18, x + 58, x + 98]) ctx.fillRect(windowX, y + 28, 22, 28);
+  ctx.fillStyle = "#8d9094";
+  ctx.fillRect(x + 8, y + 96, 134, 18);
+  const wall = ctx.createLinearGradient(x, y, x + 150, y);
+  wall.addColorStop(0, "#6a4034");
+  wall.addColorStop(0.5, "#8d5644");
+  wall.addColorStop(1, "#5a342c");
+  ctx.fillStyle = wall;
+  ctx.fillRect(x + 12, y + 28, 126, 72);
+  for (let board = 0; board < 8; board += 1) {
+    ctx.fillStyle = "rgba(0,0,0,0.08)";
+    ctx.fillRect(x + 18 + board * 15, y + 28, 1, 72);
+  }
+  const roof = ctx.createLinearGradient(x, y - 30, x, y + 8);
+  roof.addColorStop(0, "#6a3228");
+  roof.addColorStop(1, "#3d1d18");
+  ctx.fillStyle = roof;
+  ctx.beginPath();
+  ctx.moveTo(x - 4, y + 32);
+  ctx.lineTo(x + 75, y - 8);
+  ctx.lineTo(x + 154, y + 32);
+  ctx.closePath();
+  ctx.fill();
+  ctx.fillStyle = "#2a2118";
+  ctx.fillRect(x + 108, y - 28, 10, 28);
+  const night = state.run.spec.atmosphere === "night" || state.run.spec.atmosphere === "dusk";
+  for (const windowX of [x + 26, x + 58]) {
+    ctx.fillStyle = "#2c241c";
+    ctx.fillRect(windowX - 2, y + 42, 24, 30);
+    ctx.fillStyle = night ? "#f3d48a" : "#c5dfef";
+    ctx.fillRect(windowX, y + 44, 20, 26);
+    ctx.strokeStyle = "rgba(255,255,255,0.35)";
+    ctx.beginPath();
+    ctx.moveTo(windowX + 10, y + 44);
+    ctx.lineTo(windowX + 10, y + 70);
+    ctx.moveTo(windowX, y + 57);
+    ctx.lineTo(windowX + 20, y + 57);
+    ctx.stroke();
+  }
+  ctx.fillStyle = "#3a2418";
+  ctx.fillRect(x + 96, y + 52, 22, 48);
+  ctx.fillStyle = "#e7c27a";
+  ctx.beginPath();
+  ctx.arc(x + 112, y + 76, 2, 0, Math.PI * 2);
+  ctx.fill();
 }
 
 function drawLever(x, y, pulled) {
-  ctx.fillStyle = "#4d3b2c";
-  ctx.fillRect(x, y, 10, 70);
+  ctx.fillStyle = "#3a2c22";
+  ctx.fillRect(x, y + 8, 12, 78);
+  ctx.fillStyle = "#6a5644";
+  ctx.fillRect(x - 6, y + 78, 24, 8);
   ctx.save();
-  ctx.translate(x + 5, y);
-  ctx.rotate(pulled ? 0.8 : -0.8);
-  ctx.fillStyle = "#e7a322";
+  ctx.translate(x + 6, y + 10);
+  ctx.rotate(pulled ? 0.9 : -0.9);
+  const grip = ctx.createLinearGradient(0, 0, 0, 48);
+  grip.addColorStop(0, "#f0c14a");
+  grip.addColorStop(1, "#a86b12");
+  ctx.fillStyle = grip;
   ctx.fillRect(-4, 0, 8, 46);
   ctx.beginPath();
-  ctx.arc(0, 48, 8, 0, Math.PI * 2);
+  ctx.arc(0, 50, 8, 0, Math.PI * 2);
   ctx.fill();
   ctx.restore();
 }
 
 function drawLantern(x, y) {
-  ctx.fillStyle = "#2a2118";
-  ctx.fillRect(x, y, 8, 48);
-  ctx.fillStyle = "rgba(246, 217, 138, 0.9)";
+  ctx.fillStyle = "#241910";
+  ctx.fillRect(x + 2, y, 6, 46);
+  const glow = ctx.createRadialGradient(x + 5, y - 6, 2, x + 5, y - 6, 28);
+  glow.addColorStop(0, "rgba(255, 214, 120, 0.85)");
+  glow.addColorStop(1, "rgba(255, 214, 120, 0)");
+  ctx.fillStyle = glow;
   ctx.beginPath();
-  ctx.arc(x + 4, y - 8, 8, 0, Math.PI * 2);
+  ctx.arc(x + 5, y - 6, 28, 0, Math.PI * 2);
+  ctx.fill();
+  ctx.fillStyle = "#f6e2a8";
+  ctx.beginPath();
+  ctx.arc(x + 5, y - 8, 7, 0, Math.PI * 2);
   ctx.fill();
 }
 
@@ -960,7 +1371,6 @@ document.querySelector("#resume").addEventListener("click", togglePause);
 canvas.addEventListener("pointerdown", () => {
   if (!state.run || state.paused || state.resolved) return;
   if (state.run.route === "makas") doAction({ type: "throw" });
-  if (state.run.route === "kanca") doAction({ type: "hook" });
 });
 window.addEventListener("keydown", (event) => {
   if (event.key === "Escape") {
@@ -977,6 +1387,12 @@ window.addEventListener("keydown", (event) => {
   const tag = document.activeElement?.tagName;
   if (event.key === " " && tag === "BUTTON") return;
   if (event.key === "ArrowLeft" || event.key === "ArrowRight") {
+    if (state.run.route === "tabla" && state.run.phase === "aim") {
+      event.preventDefault();
+      const stepDeg = event.shiftKey ? 8 : 1;
+      doAction({ type: "turn", delta: event.key === "ArrowRight" ? stepDeg : -stepDeg });
+      return;
+    }
     if (state.run.route !== "fren" || state.run.phase !== "aim") return;
     event.preventDefault();
     const delta = event.key === "ArrowRight" ? 0.008 : -0.008;
@@ -992,7 +1408,7 @@ window.addEventListener("keydown", (event) => {
   if (run.route === "makas") doAction({ type: "throw" });
   else if (run.route === "fren") doAction({ type: "release" });
   else if (run.route === "kurek") doAction({ type: "confirm" });
-  else if (run.route === "kanca") doAction({ type: "hook" });
+  else if (run.route === "tabla") doAction({ type: "send" });
   else if (run.n === 1) doAction({ type: "gate", gate: run.spec.order[run.stepIndex] });
 });
 window.addEventListener("resize", () => {

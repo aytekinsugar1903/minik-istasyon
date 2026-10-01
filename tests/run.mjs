@@ -7,7 +7,6 @@ import {
   createRun,
   emptyProgress,
   isUnlocked,
-  kancaSpeeds,
   kurekVerdict,
   levelSpec,
   recordClear,
@@ -42,21 +41,10 @@ function solveMakas(spec) {
   return run;
 }
 
-function solveKanca(spec) {
-  let bestT = 0;
-  let best = Infinity;
-  for (let i = 0; i < 1600; i += 1) {
-    const time = i / 100;
-    const { delta, front } = kancaSpeeds(spec, time);
-    if (front <= 0) break;
-    if (delta < best) {
-      best = delta;
-      bestT = time;
-    }
-  }
-  const run = createRun("kanca", spec.n);
-  while (run.t < bestT && run.phase === "play") step(run, 1 / 120);
-  act(run, { type: "hook" });
+function solveTabla(spec) {
+  const run = createRun("tabla", spec.n);
+  act(run, { type: "turn", delta: spec.target - run.angle });
+  act(run, { type: "send" });
   settle(run);
   return run;
 }
@@ -168,17 +156,48 @@ test("kürek tam kilo kazanır, uzak kilo kaybeder", () => {
   }
 });
 
-test("kanca penceresi her bölümde bir kez yakalanır", () => {
+test("tabla doğru kemeri bulur, yanlış ağız ve boşluk düşer", () => {
   for (let n = 1; n <= 10; n += 1) {
-    const spec = levelSpec("kanca", n);
-    const won = solveKanca(spec);
-    assert.equal(won.phase, "won", `${spec.name}: ${won.fail} ${won.note}`);
-    assert.ok(won.stars >= 1, spec.name);
-    if (n === 1) assert.ok(spec.threshold <= 7 && spec.windAmp > 0);
+    const spec = levelSpec("tabla", n);
+    assert.ok(spec.stalls.includes(spec.target), spec.name);
+    assert.ok(spec.half >= 5 && spec.half <= 24, spec.name);
+    const stalls = [...spec.stalls].sort((a, b) => a - b);
+    for (let i = 1; i < stalls.length; i += 1) {
+      assert.ok(stalls[i] - stalls[i - 1] > spec.half * 2, `${spec.name} ağızlar çakışıyor`);
+    }
+    if (n < 4) assert.equal(spec.decoy, null);
+    if (n >= 4) {
+      assert.ok(spec.stalls.includes(spec.decoy));
+      assert.notEqual(spec.decoy, spec.target);
+    }
+    if (n === 1) {
+      assert.notEqual(spec.target, 0);
+      const rough = createRun("tabla", 1);
+      act(rough, { type: "turn", delta: -32 });
+      act(rough, { type: "send" });
+      settle(rough);
+      assert.equal(rough.phase, "won", "ilk tabla 8° adımlarla geçilmeli");
+    }
 
-    const early = createRun("kanca", n);
-    act(early, { type: "hook" });
-    assert.equal(early.phase, "lost");
+    const won = solveTabla(spec);
+    assert.equal(won.phase, "won", `${spec.name}: ${won.fail}`);
+    assert.equal(won.stars, 3, spec.name);
+
+    const wrongStall = spec.stalls.find((stall) => stall !== spec.target);
+    const wrong = createRun("tabla", n);
+    act(wrong, { type: "turn", delta: wrongStall });
+    act(wrong, { type: "send" });
+    settle(wrong);
+    assert.equal(wrong.phase, "lost", spec.name);
+    assert.equal(wrong.doom, "tampon", spec.name);
+
+    const gap = createRun("tabla", n);
+    act(gap, { type: "turn", delta: 80 });
+    act(gap, { type: "send" });
+    settle(gap);
+    assert.equal(gap.phase, "lost", spec.name);
+    assert.equal(gap.fail, "Tabla boşta");
+    assert.equal(gap.doom, "cukur");
   }
 });
 

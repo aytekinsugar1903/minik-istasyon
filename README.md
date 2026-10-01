@@ -7,7 +7,8 @@ Gece vardiyasında beş kısa karar. Her rotada 10 bölüm, toplam 50. Yıldızl
 | Makas | Vagon altın şeritteyken kolu çevir |
 | Fren | Hayalet vagonu boyalı şeride getir, sonra bırak |
 | Kürek | Ahşap 1 kg, kömür 2 kg, taş 3 kg |
-| Kanca | İki ibre üst üste gelince kancayı bırak |
+| Tabla | Döner tablayı vagon plakasının kemerine çevir |
+
 | Bariyer | Yaklaşımı kapat, peronu aç, çıkışı en son aç |
 
 1–3 öğrenme, 4–7 tek yeni pürüz, 8–10 daralan pay. İlk bölümler açık, sonrakiler sırayla açılır.
@@ -24,9 +25,10 @@ Adres: http://127.0.0.1:4180
 
 ## Kontroller
 
-- Makas ve kanca: büyük düğme, sahneye dokunuş veya boşluk.
+- Makas: büyük düğme, sahneye dokunuş veya boşluk.
 - Fren: sürgü veya ok tuşları, sonra Bırak.
 - Kürek: malzeme düğmeleri, sonra Köprüyü kur.
+- Tabla: ok tuşları bir derece, Shift ile sekiz derece, sonra Vagonu gönder.
 - Bariyer: sıradaki parlak kapak. Boşluk o kapağı kullanır.
 - R yeniden dener. Esc duraklatır; süre durur.
 
