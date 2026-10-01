@@ -1,0 +1,191 @@
+<!DOCTYPE html>
+<html lang="tr">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Minik İstasyon</title>
+  <link rel="icon" href="./icon.svg" type="image/svg+xml">
+  <style>
+    :root {
+      --ink: #241910;
+      --muted: #6d5c4d;
+      --paper: #f6efe2;
+      --paper-2: #e8dcc8;
+      --line: rgba(36, 25, 16, 0.12);
+      --night: #121820;
+      --amber: #e7a322;
+      --signal: #c94b3a;
+      --good: #2f6b4a;
+      color-scheme: dark;
+    }
+    * { box-sizing: border-box; }
+    html, body { margin: 0; min-height: 100%; }
+    body {
+      font-family: "Segoe UI", sans-serif;
+      color: var(--paper);
+      background:
+        radial-gradient(900px 420px at 10% -10%, rgba(231, 163, 34, 0.18), transparent 55%),
+        linear-gradient(180deg, #1b2433 0%, #121820 42%, #1a140f 100%);
+    }
+    button, input { font: inherit; }
+    button {
+      border: 0;
+      cursor: pointer;
+      color: var(--ink);
+      background: var(--paper);
+    }
+    button:disabled { cursor: not-allowed; opacity: 0.45; }
+    :focus-visible { outline: 3px solid var(--amber); outline-offset: 3px; }
+    .wrap { width: min(1120px, calc(100% - 28px)); margin: 0 auto; padding-bottom: 48px; }
+    header {
+      display: flex;
+      align-items: center;
+      gap: 16px;
+      padding: 22px 0 8px;
+    }
+    .brand { flex: 1; }
+    .eyebrow {
+      margin: 0;
+      letter-spacing: 0.16em;
+      text-transform: uppercase;
+      font-size: 12px;
+      color: #e7c27a;
+    }
+    h1, h2, h3 { font-family: Palatino, "Palatino Linotype", Georgia, serif; font-weight: 600; }
+    h1 { margin: 2px 0 0; font-size: clamp(32px, 5vw, 52px); letter-spacing: -0.03em; }
+    .header-actions { display: flex; gap: 8px; align-items: center; }
+    .ghost, .pill {
+      min-height: 44px;
+      padding: 0 14px;
+      border-radius: 999px;
+      background: rgba(246, 239, 226, 0.1);
+      color: var(--paper);
+      border: 1px solid rgba(246, 239, 226, 0.16);
+    }
+    .pill { display: inline-flex; align-items: center; }
+    .lede { max-width: 38rem; font-size: 18px; line-height: 1.45; color: #efe4d4; }
+    .hero { display: flex; flex-wrap: wrap; gap: 18px; align-items: end; justify-content: space-between; margin: 18px 0 22px; }
+    .primary {
+      min-height: 52px;
+      padding: 0 18px;
+      border-radius: 14px;
+      background: var(--amber);
+      color: #2a1c08;
+      font-weight: 700;
+    }
+    .routes, .level-grid { display: grid; gap: 12px; }
+    .routes { grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); }
+    .card, .level-btn, .dock, .result, .pause-card {
+      background: var(--paper);
+      color: var(--ink);
+      border-radius: 18px;
+    }
+    .card {
+      display: flex;
+      flex-direction: column;
+      align-items: flex-start;
+      gap: 6px;
+      text-align: left;
+      padding: 16px 16px 14px;
+      border-left: 8px solid var(--route, var(--amber));
+      box-shadow: 0 10px 30px rgba(0, 0, 0, 0.18);
+    }
+    .card span { display: block; line-height: 1.35; }
+    .card:hover, .level-btn:hover:not(:disabled), .primary:hover { transform: translateY(-1px); }
+    .card b { display: block; font-family: Palatino, Georgia, serif; font-size: 28px; }
+    .card span, .fine { color: var(--muted); }
+    .route-head { display: flex; justify-content: space-between; gap: 12px; align-items: end; margin: 12px 0; }
+    .level-grid { grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); }
+    .level-btn { text-align: left; padding: 12px; min-height: 92px; }
+    .level-btn .idx { display: block; color: var(--muted); font-size: 12px; letter-spacing: 0.08em; }
+    .level-btn strong { display: block; margin: 4px 0; }
+    .play-layout { display: grid; gap: 14px; margin-top: 12px; }
+    @media (min-width: 980px) {
+      .play-layout { grid-template-columns: minmax(0, 1fr) 320px; align-items: start; }
+    }
+    .stage {
+      position: relative;
+      border-radius: 18px;
+      overflow: hidden;
+      background: #0e141c;
+      box-shadow: 0 16px 40px rgba(0, 0, 0, 0.28);
+    }
+    canvas { width: 100%; height: auto; display: block; }
+    .dock { padding: 16px; }
+    .dock h2 { margin: 0 0 6px; font-size: 30px; }
+    #blurb, #readout, #hint { margin: 0 0 10px; line-height: 1.4; }
+    #readout { font-weight: 700; }
+    #readout.good { color: var(--good); }
+    #readout.bad { color: var(--signal); }
+    .controls { display: grid; gap: 8px; }
+    .controls button, .choice {
+      min-height: 52px;
+      border-radius: 12px;
+      padding: 0 14px;
+      background: #2a2118;
+      color: var(--paper);
+      text-align: left;
+    }
+    .controls .go, .result .primary { background: var(--amber); color: #2a1c08; text-align: center; font-weight: 700; }
+    .controls .next-gate { box-shadow: inset 0 0 0 3px var(--amber); }
+    .brake { display: grid; gap: 6px; font-weight: 700; }
+    input[type="range"] { width: 100%; accent-color: #c94b3a; height: 36px; }
+    .result, .pause-card {
+      position: absolute;
+      left: 16px;
+      right: 16px;
+      bottom: 16px;
+      padding: 14px 16px;
+      box-shadow: 0 12px 30px rgba(0, 0, 0, 0.25);
+    }
+    .result h3, .pause-card h3 { margin: 0 0 4px; font-size: 28px; }
+    .stars { margin: 0 0 6px; letter-spacing: 0.12em; color: #a86b12; font-size: 20px; }
+    .row { display: flex; gap: 8px; flex-wrap: wrap; }
+    .row button { min-height: 46px; padding: 0 14px; border-radius: 12px; }
+    .warn { color: #ffd0a8; }
+    .storage { margin-top: 18px; }
+    @media (prefers-reduced-motion: reduce) {
+      .card, .level-btn, .primary { transition: none; }
+    }
+  </style>
+</head>
+<body>
+  <div class="wrap">
+    <header>
+      <button id="home-btn" class="ghost" type="button" hidden>İstasyon</button>
+      <div class="brand">
+        <p class="eyebrow">Gece vardiyası</p>
+        <h1>Minik İstasyon</h1>
+      </div>
+      <div class="header-actions">
+        <span id="star-pill" class="pill">0 / 150</span>
+        <button id="mute" class="ghost" type="button">Ses açık</button>
+      </div>
+    </header>
+    <main id="screen-home"></main>
+    <main id="screen-route" hidden></main>
+    <main id="screen-play" hidden>
+      <div class="play-layout">
+        <div class="stage">
+          <canvas id="view" width="960" height="540" aria-label="İstasyon sahnesi"></canvas>
+          <div id="result" class="result" hidden></div>
+          <div id="pause" class="pause-card" hidden>
+            <h3>Vardiya durdu</h3>
+            <p>Süre işlemez.</p>
+            <button id="resume" class="primary" type="button">Devam</button>
+          </div>
+        </div>
+        <section class="dock">
+          <p id="kicker" class="fine"></p>
+          <h2 id="level-title"></h2>
+          <p id="blurb"></p>
+          <p id="readout" aria-live="polite"></p>
+          <p id="hint" class="fine"></p>
+          <div id="controls" class="controls"></div>
+        </section>
+      </div>
+    </main>
+  </div>
+  <script type="module" src="./src/game.js"></script>
+</body>
+</html>
