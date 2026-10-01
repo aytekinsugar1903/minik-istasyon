@@ -16,7 +16,19 @@ const KUREK_NAMES = ["Dört kürek", "Kömür de", "Taş seçimi", "Daha ağır"
 const KANCA_NAMES = ["Yavaş yaklaşma", "Denk hız", "Yakın kanca", "Tümsek", "Hızlanan arka", "Dar fark", "Kısa pencere", "Rüzgar", "Esinti", "Gece kancası"];
 const BARIYER_NAMES = ["Üç kapak", "Sırayı öğren", "Sakin geçit", "Geri tepen kapak", "Daha çabuk", "Saat başladı", "Dar zaman", "İki baskı", "Son dakikalar", "Gece geçidi"];
 
-const BARIYER_TIMERS = { 6: 14, 7: 12.5, 8: 11, 9: 10, 10: 9 };
+const BARIYER_TIMERS = { 3: 11, 4: 9.5, 5: 8.5, 6: 7.5, 7: 6.8, 8: 6.2, 9: 5.8, 10: 5.4 };
+const BARIYER_ORDERS = [
+  ["approach", "platform", "exit"],
+  ["platform", "exit", "approach"],
+  ["exit", "approach", "platform"],
+  ["approach", "exit", "platform"],
+  ["platform", "approach", "exit"],
+  ["exit", "platform", "approach"],
+  ["approach", "platform", "exit"],
+  ["exit", "approach", "platform"],
+  ["platform", "exit", "approach"],
+  ["approach", "exit", "platform"],
+];
 
 export function atmosphere(level) {
   if (level <= 2) return "dawn";
@@ -81,12 +93,12 @@ function frenSpec(shared, level, t) {
   const spec = {
     ...shared,
     name: FREN_NAMES[level - 1],
-    blurb: level >= 8
-      ? "Ray ıslak. Hayalet vagon, bırakınca duracağın yeri gösterir."
-      : level >= 4
-        ? "Eğim yarı yolda artar. Şeridi hayaletle ört."
-        : "Freni ayarla. Hayalet vagon duracağı yeri gösterir.",
-    hint: "Ok tuşları freni ince ayarlar. Bırakınca vagon kendi gider.",
+    blurb: level === 1
+      ? "İlk seferde hayalet vagon duracağı yeri gösterir."
+      : "Hayalet yok. Şeridi gözünle tut, freni bırak.",
+    hint: level === 1
+      ? "Ok tuşları freni ince ayarlar. Bırakınca vagon kendi gider."
+      : "Sonraki seferlerde duruş kendiliğinden hesaplanır, önizleme görünmez.",
     speed: 188 + t * 28,
     slope: 8 + (level >= 4 ? 7 : 0),
     twoStep: level >= 4,
@@ -110,8 +122,8 @@ function kurekSpec(shared, level, t) {
   return {
     ...shared,
     name: KUREK_NAMES[level - 1],
-    blurb: "Ahşap 1 kg, kömür 2 kg, taş 3 kg. Kefe yeşile dönünce köprüyü kur.",
-    hint: "Hedefe yetmeyen malzeme kapalıdır. Fazlası köprüyü ters çevirir.",
+    blurb: "Ahşap 1 kg, kömür 2 kg, taş 3 kg. Köprü boşluğa oturunca vagon karşıya geçer.",
+    hint: "Boşluk, kurulacak köprü kadar geniştir. Ağırlık tutmazsa geçiş olmaz.",
     target,
     tol,
     allow,
@@ -124,38 +136,35 @@ function kancaSpec(shared, level, t) {
   return {
     ...shared,
     name: KANCA_NAMES[level - 1],
-    blurb: level >= 8
-      ? "Rüzgar arkadaki vagonu iter. İbreler üst üste gelince bırak."
-      : level >= 4
-        ? "Tümsek arkadaki vagonu hızlandırır. İbreler yaklaşınca bırak."
-        : "İki ibre üst üste gelince kancayı bırak.",
-    hint: "Yeşil yay, hızların yeterince yakın olduğu aralıktır.",
-    frontV: 86,
-    decel: 9.2,
-    rearV: 20,
-    bump: level >= 6 ? 18 : level >= 4 ? 12 : 0,
-    bumpAt: 2.35,
-    windAmp: level >= 8 ? 2.1 : 0,
-    windFreq: 1.2,
-    threshold: 18 - t * 14,
+    blurb: "İbreler bir an üst üste gelir. O anda bırak. Pencere ilk bölümden dardır.",
+    hint: "Sayı yok. Rüzgar ve tümsek ilk seferden vardır.",
+    frontV: 118,
+    decel: 22 + t * 14,
+    rearV: 34,
+    bump: 10 + t * 14,
+    bumpAt: 0.45,
+    windAmp: 0.45 + t * 0.9,
+    windFreq: 3.1,
+    threshold: 6.2 - t * 4,
   };
 }
 
 function bariyerSpec(shared, level) {
-  const spring = level >= 4 ? Math.round((3.8 - (level - 4) * 0.28) * 100) / 100 : 0;
+  const spring = level >= 2 ? Math.round((2.6 - (level - 2) * 0.16) * 100) / 100 : 0;
+  const board = level === 1 ? 99 : level < 4 ? 4.5 : level < 7 ? 2.4 : 1.15;
   return {
     ...shared,
     name: BARIYER_NAMES[level - 1],
-    blurb: level >= 6
-      ? "Önce yaklaşımı kapat, peronu aç, çıkışı en son aç. Saat ilk kapakta başlar."
-      : level >= 4
-        ? "Yaklaşım kapağı bir süre sonra geri açılır. Sırayı bozma."
-        : "Sıradaki kapak parlar. Yalnızca onu kullan.",
-    hint: "Yanlış kapak vagonu durdurur. 6. bölümden sonra süre ilk doğru hareketle akar.",
-    order: ["approach", "platform", "exit"],
-    labels: { approach: "Yaklaşımı kapat", platform: "Peronu aç", exit: "Çıkışı aç" },
+    blurb: level === 1
+      ? "Tabela sırayı gösterir. Yan hat tuzaktır. Sonraki bölümlerde tabela kapanır."
+      : "Sıra değişti. Tabela kısa süre kalır, yanlış kapak vagonu durdurur.",
+    hint: "Parlak sıra yalnız ilk bölümde vardır.",
+    order: BARIYER_ORDERS[level - 1],
+    labels: { approach: "Yaklaşım", platform: "Peron", exit: "Çıkış", siding: "Yan hat" },
+    buttons: ["siding", "exit", "approach", "platform"],
     spring,
     timer: BARIYER_TIMERS[level] ?? 0,
+    board,
     arrive: 1.15,
   };
 }
@@ -184,6 +193,7 @@ export function createRun(route, n) {
     clockOn: false,
     arriving: 0,
     coupled: false,
+    doom: "",
   };
   if (route === "fren") run.brake = 0.2;
   return run;
@@ -237,11 +247,13 @@ function stepMakas(run, dt) {
   run.x += speed * dt;
   run.v = speed;
   if (run.throws < 1 && run.x > spec.zoneMax + 10) {
-    finish(run, false, "Geç kaldın", "Vagon makası geçti.");
+    run.doom = "tampon";
+    finish(run, false, "Geç kaldın", "Vagon düz gidip tampona sıkıştı.");
     return;
   }
   if (spec.second && run.throws === 1 && run.x > spec.zone2Max + 10) {
-    finish(run, false, "İkinci kol geç kaldı", "Vagon çatalı düz geçti.");
+    run.doom = "tampon";
+    finish(run, false, "İkinci kol geç kaldı", "Vagon çatalı kaçırıp tampona yapıştı.");
     return;
   }
   const needed = spec.second ? 2 : 1;
@@ -250,7 +262,10 @@ function stepMakas(run, dt) {
     const stars = err <= 0.28 ? 3 : err <= 0.62 ? 2 : 1;
     finish(run, true, "", timingNote(err), stars);
   }
-  if (run.t > 18) finish(run, false, "Vagon varamadı", "Sefer süresi doldu.");
+  if (run.t > 18) {
+    run.doom = "cukur";
+    finish(run, false, "Vagon varamadı", "Vagon raydan çıkıp hendeğe düştü.");
+  }
 }
 
 function throwSwitch(run) {
@@ -262,11 +277,13 @@ function throwSwitch(run) {
     ? [spec.zoneMin, spec.zoneMax]
     : [spec.zone2Min, spec.zone2Max];
   if (run.x < zone[0]) {
-    finish(run, false, "Erken çevirdin", run.throws === 0 ? "Vagon henüz şeride girmedi." : "İkinci şerit henüz gelmedi.");
+    run.doom = "cukur";
+    finish(run, false, "Erken çevirdin", "Makas erken açıldı. Vagon hendeğe düştü.");
     return;
   }
   if (run.x > zone[1]) {
-    finish(run, false, "Geç çevirdin", "Altın şerit geride kaldı.");
+    run.doom = "tampon";
+    finish(run, false, "Geç çevirdin", "Vagon makası geçip tampona sıkıştı.");
     return;
   }
   run.throws += 1;
@@ -279,15 +296,20 @@ function stepFren(run, dt) {
     const travel = run.x - run.spec.startX;
     const err = Math.abs(travel - run.spec.target);
     if (run.v > 0.4) {
-      finish(run, false, "Durmadı", "Fren eğimi yenemedi.");
+      run.doom = "ucurum";
+      finish(run, false, "Durmadı", "Vagon freni yenip uçuruma düştü.");
       return;
     }
     if (err <= run.spec.tol) {
       const stars = err <= run.spec.tol * 0.33 ? 3 : err <= run.spec.tol * 0.66 ? 2 : 1;
       const dir = travel > run.spec.target ? "şeridin ilerisinde" : "şeridin gerisinde";
       finish(run, true, "", `${Math.abs(travel - run.spec.target).toFixed(0)} birim ${dir}.`, stars);
+    } else if (travel > run.spec.target) {
+      run.doom = "ucurum";
+      finish(run, false, "Peronu geçti", "Vagon şeridi aşıp uçuruma düştü.");
     } else {
-      finish(run, false, travel > run.spec.target ? "Peronu geçti" : "Kısa kaldı", "Durduğu yer boyalı şeridin dışında.");
+      run.doom = "camur";
+      finish(run, false, "Kısa kaldı", "Tekerler çukura gömüldü, vagon sıkıştı.");
     }
   }
 }
@@ -303,7 +325,9 @@ function releaseBrake(run) {
 function stepKurek(run) {
   if (run.t > 0.85) {
     const verdict = kurekVerdict(run.spec, run.counts);
-    finish(run, verdict.ok, verdict.fail, verdict.note, verdict.stars);
+    if (!verdict.ok) run.doom = "ucurum";
+    const note = verdict.ok ? verdict.note : "Köprü oturmadı. Vagon boşluğa düştü.";
+    finish(run, verdict.ok, verdict.fail, note, verdict.stars);
   }
 }
 
@@ -335,7 +359,10 @@ function stepKanca(run, dt) {
     if (run.t - run.coupledAt > 0.45) finish(run, true, "", run.note, run.stars);
     return;
   }
-  if (run.t > 16) finish(run, false, "Kaçtı", "Hızlar bir daha denk gelmedi.");
+  if (run.t > 16) {
+    run.doom = "sikis";
+    finish(run, false, "Kaçtı", "Kanca kaçtı. Vagonlar birbirine sıkıştı.");
+  }
   void dt;
 }
 
@@ -350,7 +377,8 @@ function dropHook(run) {
     run.coupledAt = run.t;
     return;
   }
-  finish(run, false, delta > run.spec.threshold ? "Hızlar ayrı" : "Kaçtı", `Fark ${delta.toFixed(1)}, sınır ${run.spec.threshold.toFixed(1)}.`);
+  run.doom = "sikis";
+  finish(run, false, "Hızlar ayrı", "Kanca oturmadı. Vagonlar tampon tampona sıkıştı.");
 }
 
 function stepBariyer(run, dt) {
@@ -358,14 +386,16 @@ function stepBariyer(run, dt) {
   if (run.clockOn) {
     run.clock -= dt;
     if (spec.timer > 0 && run.clock <= 0 && run.arriving <= 0) {
-      finish(run, false, "Süre bitti", "Vagon çıkışı göremedi.");
+      run.doom = "bariyer";
+      finish(run, false, "Süre bitti", "Vagon inik kapağın altında sıkıştı.");
       return;
     }
   }
   if (run.stepIndex === 1 && spec.spring > 0) {
     run.springLeft -= dt;
     if (run.springLeft <= 0) {
-      finish(run, false, "Kapak geri açıldı", "Peronu açmadan yaklaşım boşaldı.");
+      run.doom = "bariyer";
+      finish(run, false, "Kapak geri açıldı", "Kapak indi. Vagon kolun altında kaldı.");
       return;
     }
   }
@@ -385,7 +415,8 @@ function pressGate(run, gate) {
   const expected = spec.order[run.stepIndex];
   run.moves += 1;
   if (gate !== expected) {
-    finish(run, false, "Sıra şaştı", `Sıradaki: ${spec.labels[expected]}.`);
+    run.doom = "bariyer";
+    finish(run, false, "Sıra şaştı", "Yanlış kapak indi. Vagon kola sıkıştı.");
     return;
   }
   run.stepIndex += 1;
@@ -407,17 +438,19 @@ export function makasSpeed(spec, time, x) {
   return spec.speed * scale;
 }
 
+export function branchY(spec, x) {
+  if (x <= spec.switchX) return 386;
+  const length = spec.second ? 520 : 340;
+  const u = Math.min(1, (x - spec.switchX) / length);
+  const rise = u < 0.18 ? Math.sin((u / 0.18) * Math.PI / 2) : 1;
+  const settle = u > 0.78 ? Math.cos(((u - 0.78) / 0.22) * Math.PI / 2) : 1;
+  return 386 - rise * Math.max(0, settle) * 62;
+}
+
 export function trackY(run) {
-  const spec = run.spec;
   if (run.route !== "makas") return 386;
-  if (run.throws < 1 || run.x < spec.switchX) return 386;
-  const along = Math.min(1, (run.x - spec.switchX) / 90);
-  let y = 386 - along * 78;
-  if (spec.second && run.throws >= 2 && run.x > spec.switch2X) {
-    const back = Math.min(1, (run.x - spec.switch2X) / 90);
-    y += back * 48;
-  }
-  return y;
+  if (run.throws < 1) return 386;
+  return branchY(run.spec, run.x);
 }
 
 function accelOf(spec, brake, x) {

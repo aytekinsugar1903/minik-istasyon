@@ -174,6 +174,7 @@ test("kanca penceresi her bölümde bir kez yakalanır", () => {
     const won = solveKanca(spec);
     assert.equal(won.phase, "won", `${spec.name}: ${won.fail} ${won.note}`);
     assert.ok(won.stars >= 1, spec.name);
+    if (n === 1) assert.ok(spec.threshold <= 7 && spec.windAmp > 0);
 
     const early = createRun("kanca", n);
     act(early, { type: "hook" });
@@ -187,22 +188,26 @@ test("bariyer sırası kazanır, yanlış kapak ve geri tepme kaybeder", () => {
     const won = solveBariyer(spec);
     assert.equal(won.phase, "won", `${spec.name}: ${won.fail}`);
     assert.equal(won.stars, 3, `${spec.name} yıldız ${won.stars}`);
-    if (n >= 6) assert.ok(spec.timer >= 9 && spec.timer <= 14);
-    if (n >= 4) assert.ok(spec.spring > 0);
+    if (n >= 3) assert.ok(spec.timer >= 5 && spec.timer <= 11);
+    if (n >= 2) assert.ok(spec.spring > 0);
+    if (n === 1) assert.notEqual(spec.order[0], "exit");
   }
+  const orders = new Set();
+  for (let n = 1; n <= 10; n += 1) orders.add(levelSpec("bariyer", n).order.join("-"));
+  assert.ok(orders.size >= 6);
 
   const wrong = createRun("bariyer", 1);
   act(wrong, { type: "gate", gate: "exit" });
   assert.equal(wrong.phase, "lost");
 
   const spring = createRun("bariyer", 5);
-  act(spring, { type: "gate", gate: "approach" });
+  act(spring, { type: "gate", gate: spring.spec.order[0] });
   step(spring, spring.spec.spring + 0.2);
   assert.equal(spring.phase, "lost");
 
   const slow = createRun("bariyer", 10);
-  act(slow, { type: "gate", gate: "approach" });
-  act(slow, { type: "gate", gate: "platform" });
+  act(slow, { type: "gate", gate: slow.spec.order[0] });
+  act(slow, { type: "gate", gate: slow.spec.order[1] });
   step(slow, slow.spec.timer + 0.05);
   assert.equal(slow.phase, "lost");
   assert.equal(slow.fail, "Süre bitti");
